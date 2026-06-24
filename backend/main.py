@@ -35,7 +35,7 @@ from schemas import (
     ProjectCreate, ProjectOut, ProjectListItem, TaskOut,
     DebugRequest, DebugResponse, TestGenerateRequest,
 )
-from worker import run_workflow, debug_analyze, generate_test_instruction
+from worker import run_workflow, debug_analyze, generate_test_instruction, generate_tool_instruction
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main")
@@ -227,6 +227,30 @@ async def test_generate(body: TestGenerateRequest):
         project_context=project_context,
         with_audit=body.with_audit,
         with_design=body.with_design,
+    )
+    return {"instruction": instruction}
+
+
+@app.post("/api/tool-generate")
+async def tool_generate(body: dict):
+    """统一工具生成接口：审计(audit) / 设计(design)。"""
+    tool = body.get("tool", "")
+    input_text = body.get("input", "")
+    tech_stack = body.get("tech_stack")
+    project_id = body.get("project_id")
+
+    project_context = ""
+    if project_id:
+        with Session(engine) as session:
+            project = session.get(Project, project_id)
+            if project:
+                project_context = f"项目：{project.project_idea[:200]}\n架构：{(project.architecture or '')[:300]}"
+
+    instruction = await generate_tool_instruction(
+        tool=tool,
+        input_text=input_text,
+        project_context=project_context,
+        tech_stack=tech_stack,
     )
     return {"instruction": instruction}
 

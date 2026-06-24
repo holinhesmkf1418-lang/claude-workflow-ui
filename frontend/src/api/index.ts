@@ -53,6 +53,19 @@ export const api = {
     })
   },
 
+  /** Unified tool: audit / design */
+  toolGenerate(tool: string, input: string, projectId?: string, techStack?: string): Promise<{ instruction: string }> {
+    return request('/tool-generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        tool,
+        input,
+        project_id: projectId || undefined,
+        tech_stack: techStack || undefined,
+      }),
+    })
+  },
+
   /** Analyze error log (BUG 调试) */
   debugAnalyze(errorLog: string, codeContext?: string, projectId?: string): Promise<{
     state: string

@@ -19,6 +19,16 @@ const router = createRouter({
       component: () => import('@/views/TestGenerator.vue'),
     },
     {
+      path: '/audit',
+      name: 'audit',
+      component: () => import('@/views/AuditPanel.vue'),
+    },
+    {
+      path: '/design',
+      name: 'design',
+      component: () => import('@/views/DesignTool.vue'),
+    },
+    {
       path: '/projects/:id',
       name: 'project-result',
       component: () => import('@/views/ProjectResult.vue'),

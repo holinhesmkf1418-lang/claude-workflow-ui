@@ -282,6 +282,64 @@ async def generate_test_instruction(
     return await call_llm(prompt, max_tokens=8192)
 
 
+# ─── 审计提示词（提示词③精简版）────────────────────────
+
+AUDIT_PROMPT = """你是代码审计专家。审查用户提供的代码，按以下维度输出审计结果：
+
+## 审查维度
+1. **结构与模块化**：是否有超过 400 行的巨石文件？是否需要拆分？
+2. **零硬编码**：是否有业务规则、正则、状态值直接写死在代码中？
+3. **静默失败**：是否有 try-catch pass 等吞错误的逻辑？
+4. **数据层级**：多层级数据处理时是否有父级标识丢失？
+5. **性能陷阱**：是否有循环内查询数据库或阻塞异步等操作？
+
+## 用户输入
+{input}
+
+## 项目上下文
+{project_context}
+
+输出格式：列出发现问题，附上文件/行号建议，给出修复方向。不要输出完整代码，只给审计报告。
+"""
+
+
+# ─── 前端设计提示词（提示词⑤精简版）──────────────────────
+
+DESIGN_PROMPT = """你是资深前端指令翻译官 & UI/UX 品控专家。
+
+## 核心美学法则
+- 空间与克制：善用留白，宽绰 Padding
+- 光影：极轻微弥散阴影 + 1px 微妙边框
+- 色彩：使用高级中性色阶，强调色内敛
+- 微交互：所有状态切换伴随平滑过渡
+- 绝对变量化：所有颜色/间距/圆角提取为 CSS Variables
+
+## 用户需求
+{input}
+
+## 技术栈
+{tech_stack}
+
+输出格式：直接输出一份给 Codex 执行的完整前端指令，包含 DOM 结构、CSS 变量定义、微交互动画、响应式策略。对标 Linear/Apple 品质。
+"""
+
+
+async def generate_tool_instruction(
+    tool: str,
+    input_text: str,
+    project_context: Optional[str] = None,
+    tech_stack: Optional[str] = None,
+) -> str:
+    """生成审计(③)或设计(⑤)指令。"""
+    if tool == "audit":
+        prompt = AUDIT_PROMPT.format(input=input_text, project_context=project_context or "无")
+    elif tool == "design":
+        prompt = DESIGN_PROMPT.format(input=input_text, tech_stack=tech_stack or "Vue 3 + TypeScript + Element Plus")
+    else:
+        raise ValueError(f"Unknown tool: {tool}")
+    return await call_llm(prompt, max_tokens=8192)
+
+
 # ─── Work rules (appended to each codex_instruction) ────────
 
 WORK_RULES = """# 工作要求

@@ -11,6 +11,8 @@
           <router-link to="/" class="nav-link">新建项目</router-link>
           <router-link to="/debug" class="nav-link">🐛 调试</router-link>
           <router-link to="/test" class="nav-link">🧪 测试</router-link>
+          <router-link to="/audit" class="nav-link">🔍 审计</router-link>
+          <router-link to="/design" class="nav-link">🎨 设计</router-link>
         </div>
       </div>
     </el-header>
