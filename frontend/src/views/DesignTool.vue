@@ -5,7 +5,7 @@
       <p class="page-subtitle">把自然语言翻译成专业前端指令，升维视觉到 Linear/Apple 质感（提示词⑤）</p>
     </div>
 
-    <el-row :gutter="24">
+    <el-row :gutter="24" :justify="result ? 'start' : 'center'">
       <el-col :span="result ? 12 : 14">
         <el-card shadow="never" class="form-card">
           <el-form label-position="top">

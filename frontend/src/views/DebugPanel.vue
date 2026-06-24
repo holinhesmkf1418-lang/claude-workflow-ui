@@ -7,7 +7,7 @@
       </p>
     </div>
 
-    <el-row :gutter="24">
+    <el-row :gutter="24" :justify="result ? 'start' : 'center'">
       <!-- Input area -->
       <el-col :span="result ? 12 : 16">
         <el-card shadow="never" class="input-card">

@@ -5,7 +5,7 @@
       <p class="page-subtitle">贴入需要审查的代码，大脑按提示词③扫描巨石文件、硬编码、静默失败等问题</p>
     </div>
 
-    <el-row :gutter="24">
+    <el-row :gutter="24" :justify="result ? 'start' : 'center'">
       <el-col :span="result ? 12 : 14">
         <el-card shadow="never" class="form-card">
           <el-form label-position="top">
