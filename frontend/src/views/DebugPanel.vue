@@ -272,6 +272,7 @@ async function copyInstruction() {
   margin: 0 auto;
 }
 .page-header {
+  text-align: center;
   margin-bottom: 24px;
 }
 .page-title {

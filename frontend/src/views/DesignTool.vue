@@ -69,7 +69,7 @@ async function copyResult() {
 
 <style scoped>
 .tool-page { max-width: 1200px; margin: 0 auto; }
-.page-header { margin-bottom: 24px; }
+.page-header { text-align: center; margin-bottom: 24px; }
 .page-title { font-size: 24px; font-weight: 700; color: #1a1a2e; margin-bottom: 8px; }
 .page-subtitle { font-size: 14px; color: #909399; }
 .form-card, .result-card { border-radius: 10px; }
