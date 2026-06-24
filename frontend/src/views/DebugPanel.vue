@@ -12,6 +12,30 @@
       <el-col :span="result ? 12 : 16">
         <el-card shadow="never" class="input-card">
           <el-form label-position="top">
+            <el-form-item label="关联项目（可选 — 选择后自动注入项目上下文，分析更精准）">
+              <el-select
+                v-model="selectedProjectId"
+                placeholder="不选也可以分析，但关联项目后结果更准"
+                clearable
+                filterable
+                style="width:100%"
+              >
+                <el-option
+                  v-for="p in projects"
+                  :key="p.id"
+                  :label="truncate(p.project_idea, 60)"
+                  :value="p.id"
+                >
+                  <span>{{ truncate(p.project_idea, 60) }}</span>
+                  <el-tag
+                    :type="statusTag(p.status)"
+                    size="small"
+                    style="margin-left: 8px; float: right"
+                  >{{ p.status }}</el-tag>
+                </el-option>
+              </el-select>
+            </el-form-item>
+
             <el-form-item label="报错日志" required>
               <el-input
                 v-model="errorLog"
@@ -149,14 +173,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CopyDocument } from '@element-plus/icons-vue'
 import { api } from '@/api'
+import type { ProjectListItem } from '@/types'
 
 const errorLog = ref('')
 const codeContext = ref('')
 const loading = ref(false)
+const selectedProjectId = ref('')
+const projects = ref<ProjectListItem[]>([])
+
 const result = ref<{
   state: string
   root_cause: string
@@ -187,7 +215,11 @@ async function handleAnalyze() {
   if (!errorLog.value.trim()) return
   loading.value = true
   try {
-    result.value = await api.debugAnalyze(errorLog.value, codeContext.value)
+    result.value = await api.debugAnalyze(
+      errorLog.value,
+      codeContext.value,
+      selectedProjectId.value || undefined,
+    )
     ElMessage.success('诊断完成')
   } catch (e: any) {
     ElMessage.error(e.message || '诊断失败')
@@ -199,8 +231,29 @@ async function handleAnalyze() {
 function resetForm() {
   errorLog.value = ''
   codeContext.value = ''
+  selectedProjectId.value = ''
   result.value = null
 }
+
+function truncate(s: string, n: number) {
+  return s.length > n ? s.slice(0, n) + '…' : s
+}
+
+function statusTag(status: string) {
+  const map: Record<string, string> = {
+    completed: 'success',
+    running: 'warning',
+    failed: 'danger',
+    pending: 'info',
+  }
+  return map[status] || 'info'
+}
+
+onMounted(async () => {
+  try {
+    projects.value = await api.listProjects()
+  } catch { /* silent */ }
+})
 
 async function copyInstruction() {
   if (!result.value?.machine_instruction) return

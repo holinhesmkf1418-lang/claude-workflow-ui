@@ -158,6 +158,9 @@ DEBUG_PROMPT = """你是极度追求上下文压缩与执行精度的 BUG 调试
 - GATE：涉及大重构，需用户确认
 - VERIFY：已完成，输出回归验证边界
 
+## 项目上下文（关联项目的信息，用于精准定位）
+{project_context}
+
 ## 报错日志
 {error_log}
 
@@ -166,12 +169,13 @@ DEBUG_PROMPT = """你是极度追求上下文压缩与执行精度的 BUG 调试
 """
 
 
-async def debug_analyze(error_log: str, code_context: Optional[str] = None) -> dict:
+async def debug_analyze(error_log: str, code_context: Optional[str] = None, project_context: Optional[str] = None) -> dict:
     """分析报错日志，返回结构化调试结果。"""
     client = get_client()
     prompt = DEBUG_PROMPT.format(
         error_log=error_log,
         code_context=code_context or "无",
+        project_context=project_context or "无",
     )
     resp = await client.chat.completions.create(
         model=settings.deepseek_model,

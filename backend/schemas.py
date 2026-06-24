@@ -58,6 +58,7 @@ class ProjectListItem(BaseModel):
 class DebugRequest(BaseModel):
     error_log: str
     code_context: Optional[str] = None
+    project_id: Optional[str] = None  # 关联项目，自动注入项目上下文
 
 
 class DebugResponse(BaseModel):

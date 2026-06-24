@@ -188,8 +188,22 @@ async def stream_project(project_id: str, request: Request):
 
 @app.post("/api/debug")
 async def debug(body: DebugRequest) -> DebugResponse:
-    """分析报错日志，返回 BUG 调试结果。"""
-    result = await debug_analyze(body.error_log, body.code_context)
+    """分析报错日志，返回 BUG 调试结果。支持关联项目上下文。"""
+    project_context = ""
+    if body.project_id:
+        with Session(engine) as session:
+            project = session.get(Project, body.project_id)
+            if project and project.prd:
+                # 提取前 500 字作为项目背景
+                project_context = (
+                    f"项目背景：{project.project_idea[:200]}\n"
+                    f"技术架构摘要：{(project.architecture or '')[:300]}"
+                )
+    result = await debug_analyze(
+        body.error_log,
+        code_context=body.code_context,
+        project_context=project_context,
+    )
     return DebugResponse(**result)
 
 
