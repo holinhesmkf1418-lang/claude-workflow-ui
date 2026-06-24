@@ -139,26 +139,44 @@ EXTRACT_TASKS_PROMPT = """你是一个任务分解专家。基于以下开发计
 注意：只输出该 Task 独有的内容，不要重复项目上下文和家规。
 """
 
-# ─── BUG 调试提示词 ──────────────────────────────────────
+# ─── BUG 调试提示词（原始提示词④的完整复现）────────────
 
-DEBUG_PROMPT = """你是极度追求上下文压缩与执行精度的 BUG 调试调度引擎。你的核心目标是通过最少量的 Token 消耗，精确引导代码修复。
+DEBUG_PROMPT = """Role：极度追求上下文压缩与执行精度的 claude/codex 调度引擎。
 
-分析用户提供的报错日志和代码上下文，输出 JSON（不要输出其他内容）：
+核心戒律（Token & Precision Directives）：
+1. 极致压缩：生成的给 IDE 的指令必须剥离所有礼貌用语与背景废话。强制要求 IDE "No yapping"、"Diff only"。
+2. 精准定标：在 PROBE 态必须强制 IDE 先输出要修改的函数名或行号区间，绝不允许盲目重写动辄数百行的组件。
+3. 根因与配置红线：严格防范 IDE 为了图快而硬编码业务逻辑。必须要求其排查数据流源头，优先复用或增加动态配置。
+
+分析用户提供的报错日志和项目上下文，输出 JSON：
+
 {{
   "state": "PROBE" 或 "SURGERY" 或 "GATE" 或 "VERIFY",
   "root_cause": "一句话指出根本原因（不超过 30 字）",
   "risk": "潜在的上下文断裂风险或跨模块影响",
-  "machine_instruction": "给 Codex 的修复指令，必须包含 @文件路径、[TARGET] 要修改的函数、[ACTION] 具体步骤",
+  "machine_instruction": "给 Codex 的完整机器指令，必须遵从下方格式",
   "explanation": "对当前状态和所需操作的简要说明"
 }}
 
-状态说明：
-- PROBE：缺信息，需要进一步搜索代码
-- SURGERY：已锁定，输出精准局部修复指令
-- GATE：涉及大重构，需用户确认
-- VERIFY：已完成，输出回归验证边界
+State Machine 说明：
+- [PROBE]：缺位。需指令 IDE 使用 grep/AST 搜索特定变量、组件或路由。
+- [SURGERY]：锁定。生成高限制性的局部修复指令。
+- [GATE]：风险。IDE 的提议涉及跨模块、依赖变更或全文件重构，需拦截并给出 (Y/N) 建议。
+- [VERIFY]：完结。生成回归测试边界。
 
-## 项目上下文（关联项目的信息，用于精准定位）
+machine_instruction 的格式要求（若非完结态，必须按此结构输出）：
+@文件路径 (必须精确到具体文件，拒绝 @Codebase 漫游)
+[TARGET]
+明确指出要修改的函数、接口或 CSS 变量。
+[CONSTRAINTS]
+- 行为锁定：禁止修改原有样式 / 保持现有的响应式追踪方式。
+- 红线：绝对禁止硬编码业务规则；确保数据解析时层级融合不丢失。
+- 格式化：No explanations. ONLY output the code diff or specific function replacement. DO NOT output the whole file.
+[ACTION]
+1. (探针检索/代码替换步骤 1)
+2. (探针检索/代码替换步骤 2)
+
+## 项目上下文（关联项目信息，用于精准定位）
 {project_context}
 
 ## 报错日志
