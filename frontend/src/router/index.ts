@@ -9,6 +9,11 @@ const router = createRouter({
       component: () => import('@/views/NewProject.vue'),
     },
     {
+      path: '/debug',
+      name: 'debug',
+      component: () => import('@/views/DebugPanel.vue'),
+    },
+    {
       path: '/projects/:id',
       name: 'project-result',
       component: () => import('@/views/ProjectResult.vue'),

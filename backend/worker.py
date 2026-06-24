@@ -139,6 +139,68 @@ EXTRACT_TASKS_PROMPT = """你是一个任务分解专家。基于以下开发计
 注意：只输出该 Task 独有的内容，不要重复项目上下文和家规。
 """
 
+# ─── BUG 调试提示词 ──────────────────────────────────────
+
+DEBUG_PROMPT = """你是极度追求上下文压缩与执行精度的 BUG 调试调度引擎。你的核心目标是通过最少量的 Token 消耗，精确引导代码修复。
+
+分析用户提供的报错日志和代码上下文，输出 JSON（不要输出其他内容）：
+{{
+  "state": "PROBE" 或 "SURGERY" 或 "GATE" 或 "VERIFY",
+  "root_cause": "一句话指出根本原因（不超过 30 字）",
+  "risk": "潜在的上下文断裂风险或跨模块影响",
+  "machine_instruction": "给 Codex 的修复指令，必须包含 @文件路径、[TARGET] 要修改的函数、[ACTION] 具体步骤",
+  "explanation": "对当前状态和所需操作的简要说明"
+}}
+
+状态说明：
+- PROBE：缺信息，需要进一步搜索代码
+- SURGERY：已锁定，输出精准局部修复指令
+- GATE：涉及大重构，需用户确认
+- VERIFY：已完成，输出回归验证边界
+
+## 报错日志
+{error_log}
+
+## 代码上下文
+{code_context}
+"""
+
+
+async def debug_analyze(error_log: str, code_context: Optional[str] = None) -> dict:
+    """分析报错日志，返回结构化调试结果。"""
+    client = get_client()
+    prompt = DEBUG_PROMPT.format(
+        error_log=error_log,
+        code_context=code_context or "无",
+    )
+    resp = await client.chat.completions.create(
+        model=settings.deepseek_model,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+    )
+    content = resp.choices[0].message.content or "{}"
+    try:
+        data = json.loads(content)
+        return {
+            "state": data.get("state", "PROBE"),
+            "root_cause": data.get("root_cause", "无法分析"),
+            "risk": data.get("risk", ""),
+            "machine_instruction": data.get("machine_instruction", ""),
+            "explanation": data.get("explanation", ""),
+            "raw": content,
+        }
+    except json.JSONDecodeError:
+        return {
+            "state": "PROBE",
+            "root_cause": "JSON 解析失败，请重试",
+            "risk": "",
+            "machine_instruction": content,
+            "explanation": "原始输出未按 JSON 格式返回，已展示原文",
+            "raw": content,
+        }
+
+
 # ─── Work rules (appended to each codex_instruction) ────────
 
 WORK_RULES = """# 工作要求

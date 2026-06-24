@@ -37,4 +37,22 @@ export const api = {
   streamUrl(id: string): string {
     return `${BASE}/projects/${id}/stream`
   },
+
+  /** Analyze error log (BUG 调试) */
+  debugAnalyze(errorLog: string, codeContext?: string): Promise<{
+    state: string
+    root_cause: string
+    risk: string
+    machine_instruction: string
+    explanation: string
+    raw: string
+  }> {
+    return request('/debug', {
+      method: 'POST',
+      body: JSON.stringify({
+        error_log: errorLog,
+        code_context: codeContext || undefined,
+      }),
+    })
+  },
 }

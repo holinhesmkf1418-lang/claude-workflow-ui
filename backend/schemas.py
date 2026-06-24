@@ -53,3 +53,17 @@ class ProjectListItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class DebugRequest(BaseModel):
+    error_log: str
+    code_context: Optional[str] = None
+
+
+class DebugResponse(BaseModel):
+    state: str
+    root_cause: str
+    risk: str = ""
+    machine_instruction: str
+    explanation: str = ""
+    raw: str = ""

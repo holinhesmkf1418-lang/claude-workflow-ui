@@ -32,8 +32,11 @@ from sqlmodel import Session, select, desc
 from config import settings
 from database import create_db_and_tables, engine
 from models import Project, Task
-from schemas import ProjectCreate, ProjectOut, ProjectListItem, TaskOut
-from worker import run_workflow
+from schemas import (
+    ProjectCreate, ProjectOut, ProjectListItem, TaskOut,
+    DebugRequest, DebugResponse,
+)
+from worker import run_workflow, debug_analyze
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main")
@@ -181,6 +184,13 @@ async def stream_project(project_id: str, request: Request):
             await asyncio.sleep(0.8)
 
     return EventSourceResponse(event_generator())
+
+
+@app.post("/api/debug")
+async def debug(body: DebugRequest) -> DebugResponse:
+    """分析报错日志，返回 BUG 调试结果。"""
+    result = await debug_analyze(body.error_log, body.code_context)
+    return DebugResponse(**result)
 
 
 # ─── SPA fallback (must be last) ────────────────────────────
