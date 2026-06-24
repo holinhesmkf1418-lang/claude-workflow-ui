@@ -19,7 +19,6 @@ Usage (dev, with hot-reload):
 import asyncio
 import json
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -154,6 +153,11 @@ async def stream_project(project_id: str, request: Request):
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
+    def _build_data(p: Project) -> str:
+        """Build project data JSON string."""
+        p.tasks = session.exec(select(Task).where(Task.project_id == project_id)).all()
+        return json.dumps(_project_to_out(p).model_dump(mode="json"), ensure_ascii=False)
+
     async def event_generator():
         last_updated = None
         while True:
@@ -167,18 +171,17 @@ async def stream_project(project_id: str, request: Request):
                     break
 
                 if project.updated_at != last_updated:
-                    project.tasks = session.exec(
-                        select(Task).where(Task.project_id == project_id)
-                    ).all()
-                    data = _project_to_out(project).model_dump(mode="json")
-                    yield {"event": "update", "data": json.dumps(data, ensure_ascii=False)}
+                    data = _build_data(project)
+                    yield {"event": "update", "data": data}
                     last_updated = project.updated_at
 
                 if project.status == "completed":
-                    yield {"event": "completed", "data": json.dumps(data, ensure_ascii=False)}
+                    data = _build_data(project) if last_updated != project.updated_at else data
+                    yield {"event": "completed", "data": data}
                     break
                 if project.status == "failed":
-                    yield {"event": "failed", "data": json.dumps(data, ensure_ascii=False)}
+                    data = _build_data(project) if last_updated != project.updated_at else data
+                    yield {"event": "failed", "data": data}
                     break
 
             await asyncio.sleep(0.8)

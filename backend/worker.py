@@ -5,7 +5,6 @@ Three-step agent pipeline (DeepSeek backend):
 3. Development Plan + Structured Task Extraction
 """
 
-import asyncio
 import json
 import logging
 import re
@@ -31,6 +30,7 @@ def get_client() -> AsyncOpenAI:
         _client = AsyncOpenAI(
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
+            timeout=120.0,
         )
     return _client
 

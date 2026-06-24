@@ -21,6 +21,9 @@ frontend/dist/
 *.db-journal
 *.sqlite
 
+# Build artifacts
+frontend/tsconfig.tsbuildinfo
+
 # OS
 .DS_Store
 Thumbs.db

@@ -11,7 +11,6 @@ class Settings:
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./workflow.db")
     host: str = os.getenv("HOST", "0.0.0.0")
     port: int = int(os.getenv("PORT", "8000"))
-    frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 
 settings = Settings()
