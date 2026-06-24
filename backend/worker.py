@@ -5,6 +5,7 @@ Three-step agent pipeline (DeepSeek backend):
 3. Development Plan + Structured Task Extraction
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -353,15 +354,27 @@ WORK_RULES = """# 工作要求
 
 # ─── Helpers ─────────────────────────────────────────────────
 
-async def call_llm(prompt: str, *, model: Optional[str] = None, max_tokens: int = 8192) -> str:
-    """Call DeepSeek with a plain-text prompt, return the text response."""
-    client = get_client()
-    resp = await client.chat.completions.create(
-        model=model or settings.deepseek_model,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.choices[0].message.content or ""
+async def call_llm(prompt: str, *, model: Optional[str] = None, max_tokens: int = 8192, max_retries: int = 3) -> str:
+    """Call DeepSeek with retry on transient errors. 3 retries with exponential backoff."""
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            client = get_client()
+            resp = await client.chat.completions.create(
+                model=model or settings.deepseek_model,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=120,
+            )
+            return resp.choices[0].message.content or ""
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt  # exponential backoff: 1s, 2s, 4s
+                logger.warning(f"LLM call failed (attempt {attempt+1}): {e}, retrying in {wait}s")
+                await asyncio.sleep(wait)
+    logger.error(f"LLM call failed after {max_retries} attempts: {last_error}")
+    raise last_error  # type: ignore
 
 
 async def extract_tasks_structured(plan: str, *, model: Optional[str] = None) -> List[dict]:
