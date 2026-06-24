@@ -60,6 +60,22 @@
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+.nav-links {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: 28px;
+}
+.nav-link {
+  text-decoration: none;
+  color: #606266;
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+.nav-link:hover {
+  color: #409eff;
+}
 .app-main {
   max-width: 1200px;
   margin: 0 auto;
