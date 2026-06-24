@@ -9,7 +9,8 @@
         <el-tag type="info" size="small" effect="plain">Claude Code Workflow 可视化面板</el-tag>
         <div class="nav-links">
           <router-link to="/" class="nav-link">新建项目</router-link>
-          <router-link to="/debug" class="nav-link">🐛 BUG 调试</router-link>
+          <router-link to="/debug" class="nav-link">🐛 调试</router-link>
+          <router-link to="/test" class="nav-link">🧪 测试</router-link>
         </div>
       </div>
     </el-header>

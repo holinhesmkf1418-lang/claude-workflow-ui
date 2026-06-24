@@ -33,9 +33,9 @@ from database import create_db_and_tables, engine
 from models import Project, Task
 from schemas import (
     ProjectCreate, ProjectOut, ProjectListItem, TaskOut,
-    DebugRequest, DebugResponse,
+    DebugRequest, DebugResponse, TestGenerateRequest,
 )
-from worker import run_workflow, debug_analyze
+from worker import run_workflow, debug_analyze, generate_test_instruction
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main")
@@ -208,6 +208,27 @@ async def debug(body: DebugRequest) -> DebugResponse:
         project_context=project_context,
     )
     return DebugResponse(**result)
+
+
+@app.post("/api/test-generate")
+async def test_generate(body: TestGenerateRequest):
+    """生成测试指令。支持关联项目上下文和组合提示词③/⑤。"""
+    project_context = ""
+    if body.project_id:
+        with Session(engine) as session:
+            project = session.get(Project, body.project_id)
+            if project:
+                project_context = (
+                    f"项目：{project.project_idea[:200]}\n"
+                    f"架构：{(project.architecture or '')[:300]}"
+                )
+    instruction = await generate_test_instruction(
+        scenario=body.scenario,
+        project_context=project_context,
+        with_audit=body.with_audit,
+        with_design=body.with_design,
+    )
+    return {"instruction": instruction}
 
 
 # ─── SPA fallback (must be last) ────────────────────────────

@@ -14,6 +14,11 @@ const router = createRouter({
       component: () => import('@/views/DebugPanel.vue'),
     },
     {
+      path: '/test',
+      name: 'test',
+      component: () => import('@/views/TestGenerator.vue'),
+    },
+    {
       path: '/projects/:id',
       name: 'project-result',
       component: () => import('@/views/ProjectResult.vue'),

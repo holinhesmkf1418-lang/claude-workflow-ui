@@ -38,6 +38,21 @@ export const api = {
     return `${BASE}/projects/${id}/stream`
   },
 
+  /** Generate test instruction (测试生成) */
+  testGenerate(scenario: string, projectId?: string, withAudit?: boolean, withDesign?: boolean): Promise<{
+    instruction: string
+  }> {
+    return request('/test-generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        scenario,
+        project_id: projectId || undefined,
+        with_audit: withAudit || false,
+        with_design: withDesign || false,
+      }),
+    })
+  },
+
   /** Analyze error log (BUG 调试) */
   debugAnalyze(errorLog: string, codeContext?: string, projectId?: string): Promise<{
     state: string

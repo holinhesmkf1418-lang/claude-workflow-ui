@@ -223,6 +223,65 @@ async def debug_analyze(error_log: str, code_context: Optional[str] = None, proj
         }
 
 
+# ─── 测试生成提示词（提示词⑥ + 可选组合③⑤）────────────
+
+TEST_PROMPT = """你是高级浏览器自动化与自愈执行专家。你的核心任务是基于需求编写并执行 Playwright 自动化测试脚本。
+
+## 测试场景
+{scenario}
+
+## 项目上下文
+{project_context}
+
+## 输出要求
+请输出一份完整的、可直接粘贴到 Codex 执行的测试指令，包含：
+
+1. **测试分析与策略**：分析测试目标、关键交互路径、需拦截的 API 请求
+2. **Playwright 测试脚本**：完整可执行的测试代码
+3. **健壮性要求**：
+   - 禁止 `page.waitForTimeout()` 等硬编码等待，使用基于状态的等待
+   - 优先使用语义化选择器（Aria-labels、data-testid）
+   - 必须包含异常处理与自愈逻辑（失败时分析 DOM 自动调整）
+4. **自愈闭环**：脚本失败时捕获截图/DOM 快照 → 分析根因 → 调整策略重试
+{audit_section}
+{design_section}
+"""
+
+AUDIT_SECTION = """
+## 附加：测试完成后执行代码审计
+测试通过后，对本次修改涉及的文件执行代码审计：
+1. 检查是否有超过 400 行的巨石组件或文件，如有则要求拆分
+2. 检查是否有业务逻辑硬编码（正则、状态字典、阈值写死在代码中）
+3. 检查是否有 `try-catch pass` 等静默失败逻辑
+4. 检查多层级数据处理时是否有父级标识丢失
+"""
+
+DESIGN_SECTION = """
+## 附加：应用前端设计规范
+测试涉及前端 UI 时，确保：
+1. 采用极简风格，善用留白，使用弥散阴影 + 1px 微妙边框
+2. 所有颜色/间距/圆角提取为 CSS Variables
+3. Hover/Active/Focus 状态有平滑过渡动画
+4. 响应式布局，移动端优雅降级
+"""
+
+
+async def generate_test_instruction(
+    scenario: str,
+    project_context: Optional[str] = None,
+    with_audit: bool = False,
+    with_design: bool = False,
+) -> str:
+    """生成测试指令（提示词⑥ + 可选组合③或⑤）。"""
+    prompt = TEST_PROMPT.format(
+        scenario=scenario,
+        project_context=project_context or "无",
+        audit_section=AUDIT_SECTION if with_audit else "",
+        design_section=DESIGN_SECTION if with_design else "",
+    )
+    return await call_llm(prompt, max_tokens=8192)
+
+
 # ─── Work rules (appended to each codex_instruction) ────────
 
 WORK_RULES = """# 工作要求

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class ProjectCreate(BaseModel):
     project_idea: str
-    model: Optional[str] = None  # 模型选择，None 表示用 .env 默认
+    model: Optional[str] = None
 
 
 class TaskOut(BaseModel):
@@ -58,7 +58,7 @@ class ProjectListItem(BaseModel):
 class DebugRequest(BaseModel):
     error_log: str
     code_context: Optional[str] = None
-    project_id: Optional[str] = None  # 关联项目，自动注入项目上下文
+    project_id: Optional[str] = None
 
 
 class DebugResponse(BaseModel):
@@ -68,3 +68,10 @@ class DebugResponse(BaseModel):
     machine_instruction: str
     explanation: str = ""
     raw: str = ""
+
+
+class TestGenerateRequest(BaseModel):
+    scenario: str
+    project_id: Optional[str] = None
+    with_audit: bool = False
+    with_design: bool = False
