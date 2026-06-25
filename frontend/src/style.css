@@ -85,6 +85,21 @@ body {
   max-width: 100%;
 }
 
+/* Mermaid diagram styling */
+.markdown-body .mermaid {
+  margin: 1.5em 0;
+  padding: 16px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e4e7ed;
+  overflow-x: auto;
+  text-align: center;
+}
+.markdown-body .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
 /* Task codex instruction preview */
 .codex-block {
   background: #1e1e2e;
