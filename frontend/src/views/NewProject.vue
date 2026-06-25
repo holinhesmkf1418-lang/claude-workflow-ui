@@ -122,7 +122,11 @@ async function handleSubmit() {
 
   submitting.value = true
   try {
-    const project = await store.createAndWatch(form.value.projectIdea, form.value.model || undefined)
+    const project = await store.createAndWatch(
+      form.value.projectIdea,
+      form.value.model || undefined,
+      form.value.githubRepo || undefined,
+    )
     ElMessage.success('Workflow 已启动！正在跳转…')
     router.push(`/projects/${project.id}`)
   } catch (e: any) {

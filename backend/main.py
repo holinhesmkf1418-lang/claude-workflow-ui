@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -33,15 +34,19 @@ from database import create_db_and_tables, engine
 from models import Project, Task
 from schemas import (
     ProjectCreate, ProjectOut, ProjectListItem, TaskOut,
-    DebugRequest, DebugResponse, TestGenerateRequest,
+    DebugRequest, DebugResponse, TestGenerateRequest, AnswerRequest,
 )
-from worker import run_workflow, debug_analyze, generate_test_instruction, generate_tool_instruction
+from worker import run_workflow, debug_analyze, generate_test_instruction, generate_tool_instruction, pause_events
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main")
 
 # ─── Frontend dist path ──────────────────────────────────────
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+# ─── Streaming queues per project ────────────────────────────
+stream_queues: dict[str, asyncio.Queue] = {}
+
 
 
 # ─── Lifespan ────────────────────────────────────────────────
@@ -73,13 +78,20 @@ app = FastAPI(
 # ─── Helpers ─────────────────────────────────────────────────
 
 def _project_to_out(project: Project) -> ProjectOut:
+    # pending_questions and user_answers are stored as JSON strings in DB;
+    # make sure they are passed as proper strings (or None).
+    pq = project.pending_questions
+    ua = project.user_answers
     return ProjectOut(
         id=project.id,
         project_idea=project.project_idea,
         model=project.model,
+        github_repo=project.github_repo,
         status=project.status,
         status_detail=project.status_detail,
         error=project.error,
+        pending_questions=pq,
+        user_answers=ua,
         prd=project.prd,
         architecture=project.architecture,
         plan=project.plan,
@@ -94,6 +106,7 @@ def _project_to_list(project: Project) -> ProjectListItem:
         id=project.id,
         project_idea=project.project_idea,
         model=project.model,
+        github_repo=project.github_repo,
         status=project.status,
         status_detail=project.status_detail,
         created_at=project.created_at,
@@ -111,14 +124,25 @@ async def health():
 async def create_project(body: ProjectCreate):
     """Create a new project and launch the workflow in background."""
     with Session(engine) as session:
-        project = Project(project_idea=body.project_idea)
+        project = Project(
+            project_idea=body.project_idea,
+            github_repo=body.github_repo,
+        )
         session.add(project)
         session.commit()
         session.refresh(project)
         project_id = project.id
 
-    # Launch background worker
-    asyncio.create_task(run_workflow(project_id, body.project_idea, model=body.model))
+    # Create streaming queue for this project
+    queue: asyncio.Queue = asyncio.Queue()
+    stream_queues[project_id] = queue
+
+    # Launch background worker with streaming queue
+    asyncio.create_task(run_workflow(
+        project_id, body.project_idea,
+        model=body.model, github_repo=body.github_repo,
+        stream_queue=queue,
+    ))
 
     with Session(engine) as session:
         p = session.get(Project, project_id)
@@ -145,25 +169,79 @@ async def get_project(project_id: str):
         return _project_to_out(project)
 
 
-@app.get("/api/projects/{project_id}/stream")
-async def stream_project(project_id: str, request: Request):
-    """SSE endpoint for real-time workflow progress."""
+@app.post("/api/projects/{project_id}/answer")
+async def answer_project_questions(project_id: str, body: AnswerRequest):
+    """Submit answers to the PM's soul-searching questions and resume workflow."""
     with Session(engine) as session:
         project = session.get(Project, project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
+        if project.status != "awaiting_input":
+            raise HTTPException(status_code=400, detail="Project is not awaiting input")
 
-    def _build_data(p: Project) -> str:
-        """Build project data JSON string."""
-        p.tasks = session.exec(select(Task).where(Task.project_id == project_id)).all()
-        return json.dumps(_project_to_out(p).model_dump(mode="json"), ensure_ascii=False)
+        # Save answers to DB and clear pending questions
+        project.user_answers = json.dumps(body.answers, ensure_ascii=False)
+        project.pending_questions = None  # ✅ 清空，防止前端重新打开时弹窗
+        project.status = "running"
+        project.status_detail = "🏗️ 继续架构设计中…（已收到回答）"
+        project.updated_at = datetime.now(timezone.utc)
+        session.add(project)
+        session.commit()
 
+    # Resume the paused worker
+    event = pause_events.pop(project_id, None)
+    if event:
+        event.set()
+
+    return {"ok": True, "message": f"已回答 {len(body.answers)} 个问题，继续架构设计"}
+
+
+@app.get("/api/projects/{project_id}/stream")
+async def stream_project(project_id: str, request: Request):
+    """SSE endpoint for real-time workflow progress.
+
+    Hybrid approach:
+      - Reads streaming tokens from the project's asyncio.Queue (real-time)
+      - Polls DB for state changes (full state snapshots)
+      - Forward token/step_start/step_end events from the queue
+      - Forward update/completed/failed events from DB polling
+    """
     async def event_generator():
         last_updated = None
+        queue = stream_queues.get(project_id)
+        # Wait up to 3s per cycle for queue events before polling DB
+        queue_timeout = 0.3 if queue else None
+
+        def _dump() -> str:
+            """Load project + tasks from DB in a single session and return JSON."""
+            with Session(engine) as s:
+                p = s.get(Project, project_id)
+                if p is None:
+                    return "{}"
+                p.tasks = s.exec(
+                    select(Task).where(Task.project_id == project_id)
+                ).all()
+                return json.dumps(
+                    _project_to_out(p).model_dump(mode="json"),
+                    ensure_ascii=False,
+                )
+
         while True:
             if await request.is_disconnected():
                 break
 
+            # ── Step 1: Drain queue events (real-time streaming) ──
+            if queue is not None:
+                try:
+                    while True:
+                        event = await asyncio.wait_for(queue.get(), timeout=queue_timeout)
+                        yield event
+                        if event.get("event") in ("completed", "failed"):
+                            return
+                except asyncio.TimeoutError:
+                    pass
+
+            # ── Step 2: Poll DB for state changes ──
             with Session(engine) as session:
                 project = session.get(Project, project_id)
                 if project is None:
@@ -171,20 +249,24 @@ async def stream_project(project_id: str, request: Request):
                     break
 
                 if project.updated_at != last_updated:
-                    data = _build_data(project)
+                    data = _dump()
                     yield {"event": "update", "data": data}
                     last_updated = project.updated_at
 
                 if project.status == "completed":
-                    data = _build_data(project) if last_updated != project.updated_at else data
+                    data = _dump()
                     yield {"event": "completed", "data": data}
+                    stream_queues.pop(project_id, None)
                     break
                 if project.status == "failed":
-                    data = _build_data(project) if last_updated != project.updated_at else data
+                    data = _dump()
                     yield {"event": "failed", "data": data}
+                    stream_queues.pop(project_id, None)
                     break
 
-            await asyncio.sleep(0.8)
+            # Brief pause between cycles (only if no queue active)
+            if queue is None:
+                await asyncio.sleep(0.8)
 
     return EventSourceResponse(event_generator())
 

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 class ProjectCreate(BaseModel):
     project_idea: str
     model: Optional[str] = None
+    github_repo: Optional[str] = None
 
 
 class TaskOut(BaseModel):
@@ -32,6 +33,9 @@ class ProjectOut(BaseModel):
     status: str
     status_detail: str
     error: Optional[str] = None
+    github_repo: Optional[str] = None
+    pending_questions: Optional[str] = None  # JSON array of questions
+    user_answers: Optional[str] = None       # JSON object
     prd: Optional[str] = None
     architecture: Optional[str] = None
     plan: Optional[str] = None
@@ -43,10 +47,15 @@ class ProjectOut(BaseModel):
         from_attributes = True
 
 
+class AnswerRequest(BaseModel):
+    answers: dict[str, str]  # { "0": "answer text", "1": "..." }
+
+
 class ProjectListItem(BaseModel):
     id: str
     project_idea: str
     model: Optional[str] = None
+    github_repo: Optional[str] = None
     status: str
     status_detail: str
     created_at: datetime

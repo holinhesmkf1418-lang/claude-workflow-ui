@@ -16,6 +16,12 @@
 
     <!-- Content -->
     <template v-else-if="project">
+      <!-- PM's soul-searching questions dialog -->
+      <QuestionDialog
+        :questions="store.pendingQuestions"
+        @done="onQuestionsDone"
+      />
+
       <!-- Header -->
       <div class="result-header">
         <div class="header-left">
@@ -74,18 +80,40 @@
             <PrdViewer
               :prd="project.prd"
               :loading="isStepActive('prd')"
+              :streaming-content="store.streamingContent.prd || undefined"
             />
+            <div v-if="isStreaming('prd')" class="streaming-indicator">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              <span>接收中… ({{ store.streamingContent.prd.length }} 字)</span>
+            </div>
           </el-tab-pane>
 
           <el-tab-pane label="🏗️ 架构设计" name="architecture">
             <ArchitectureViewer
               :architecture="project.architecture"
               :loading="isStepActive('architecture')"
+              :streaming-content="store.streamingContent.architecture || undefined"
             />
+            <div v-if="isStreaming('architecture')" class="streaming-indicator">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              <span>接收中… ({{ store.streamingContent.architecture.length }} 字)</span>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="📝 开发计划" name="plan">
+            <PlanViewer
+              :plan="project.plan"
+              :loading="isStepActive('plan')"
+              :streaming-content="store.streamingContent.plan || undefined"
+            />
+            <div v-if="isStreaming('plan')" class="streaming-indicator">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              <span>接收中… ({{ store.streamingContent.plan.length }} 字)</span>
+            </div>
           </el-tab-pane>
 
           <el-tab-pane
-            :label="`📝 开发计划与任务 (${project.tasks.length})`"
+            :label="`✅ 任务清单 (${project.tasks.length})`"
             name="tasks"
           >
             <TaskListView
@@ -100,7 +128,7 @@
       <el-alert
         v-if="project.status === 'failed'"
         title="Workflow 执行失败"
-        :description="project.error || '请检查 Anthropic API Key 和网络连接'"
+        :description="project.error || '请检查 API Key 和网络连接'"
         type="error"
         show-icon
         closable
@@ -111,9 +139,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, Plus } from '@element-plus/icons-vue'
+import { ArrowLeft, Plus, Loading } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/stores/project'
 import { api } from '@/api'
 import StatusTimeline from '@/components/StatusTimeline.vue'
@@ -121,6 +149,8 @@ import type { TimelineStep } from '@/components/StatusTimeline.vue'
 import PrdViewer from '@/components/PrdViewer.vue'
 import ArchitectureViewer from '@/components/ArchitectureViewer.vue'
 import TaskListView from '@/components/TaskListView.vue'
+import PlanViewer from '@/components/PlanViewer.vue'
+import QuestionDialog from '@/components/QuestionDialog.vue'
 
 const route = useRoute()
 const store = useProjectStore()
@@ -135,11 +165,17 @@ const statusTag = computed(() => {
   const map: Record<string, string> = {
     completed: 'success',
     running: 'warning',
+    awaiting_input: 'warning',
     failed: 'danger',
     pending: 'info',
   }
   return map[project.value?.status || ''] || 'info'
 })
+
+/** True when a step is actively receiving stream tokens */
+function isStreaming(step: string): boolean {
+  return store.activeStep === step && store.streamingContent[step]?.length > 0
+}
 
 const timelineSteps = computed<TimelineStep[]>(() => {
   const p = project.value
@@ -153,7 +189,6 @@ const timelineSteps = computed<TimelineStep[]>(() => {
   }
 
   if (p.status === 'failed') {
-    // Determine which step failed
     if (p.prd) statusMap.prd = 'done'
     else { statusMap.prd = 'error'; return stepsFromMap(statusMap) }
     if (p.architecture) statusMap.architecture = 'done'
@@ -169,12 +204,17 @@ const timelineSteps = computed<TimelineStep[]>(() => {
   if (p.plan) statusMap.plan = 'done'
   if (p.tasks.length > 0) statusMap.tasks = 'done'
 
-  // Find the active step
+  // Mark the actively streaming step
+  if (store.activeStep && statusMap[store.activeStep] === 'pending') {
+    statusMap[store.activeStep] = 'active'
+  }
+
+  // Fallback: if running, find the active step from DB state
   if (p.status === 'running') {
-    if (!p.prd) statusMap.prd = 'active'
-    else if (!p.architecture) statusMap.architecture = 'active'
-    else if (!p.plan) statusMap.plan = 'active'
-    else if (p.tasks.length === 0) statusMap.tasks = 'active'
+    if (!p.prd && statusMap.prd !== 'active') statusMap.prd = 'active'
+    else if (!p.architecture && statusMap.architecture !== 'active') statusMap.architecture = 'active'
+    else if (!p.plan && statusMap.plan !== 'active') statusMap.plan = 'active'
+    else if (p.tasks.length === 0 && statusMap.tasks !== 'active') statusMap.tasks = 'active'
   }
 
   if (p.status === 'completed') {
@@ -197,7 +237,10 @@ function stepsFromMap(m: Record<string, string>): TimelineStep[] {
 }
 
 function isStepActive(step: string): boolean {
-  return project.value?.status === 'running' && !project.value?.[step as keyof typeof project.value]
+  if (project.value?.status !== 'running') return false
+  // If streaming is actively providing content for this step, don't show loading skeleton
+  if (store.activeStep === step && store.streamingContent[step]?.length > 0) return false
+  return !project.value?.[step as keyof typeof project.value]
 }
 
 function truncate(s: string, n: number) {
@@ -206,6 +249,11 @@ function truncate(s: string, n: number) {
 
 function formatTime(ts: string) {
   return new Date(ts).toLocaleString('zh-CN')
+}
+
+function onQuestionsDone() {
+  // Questions answered, workflow resumed — switch to architecture tab to see streaming
+  activeTab.value = 'architecture'
 }
 
 onMounted(async () => {
@@ -318,5 +366,23 @@ onUnmounted(() => {
 }
 .content-card {
   border-radius: 10px;
+}
+.streaming-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #909399;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+.streaming-indicator .is-loading {
+  animation: spin 1.5s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

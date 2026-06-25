@@ -15,9 +15,12 @@ export interface Project {
   id: string
   project_idea: string
   model: string | null
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  github_repo: string | null
+  status: 'pending' | 'running' | 'awaiting_input' | 'completed' | 'failed'
   status_detail: string
   error: string | null
+  pending_questions: string | null  // JSON array of questions
+  user_answers: string | null       // JSON object
   prd: string | null
   architecture: string | null
   plan: string | null

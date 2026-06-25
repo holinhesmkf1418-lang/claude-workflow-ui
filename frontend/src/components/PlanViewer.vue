@@ -1,10 +1,10 @@
 <template>
-  <div class="prd-viewer">
+  <div class="plan-viewer">
     <div v-if="displayContent" class="markdown-body" v-html="rendered"></div>
     <div v-else-if="loading" class="streaming-placeholder">
-      <el-empty description="需求推演进行中…" />
+      <el-empty description="生成开发计划中…" />
     </div>
-    <el-empty v-else description="暂无 PRD 内容" />
+    <el-empty v-else description="暂无开发计划" />
   </div>
 </template>
 
@@ -13,18 +13,13 @@ import { computed } from 'vue'
 import { marked } from 'marked'
 
 const props = defineProps<{
-  prd: string | null
+  plan: string | null
   loading?: boolean
-  /** Optional streaming content — shown when db content is still null */
   streamingContent?: string
 }>()
 
-/**
- * Display the authoritative content from DB first,
- * fall back to in-memory streaming buffer while step is active.
- */
 const displayContent = computed(() => {
-  return props.prd ?? props.streamingContent ?? null
+  return props.plan ?? props.streamingContent ?? null
 })
 
 const rendered = computed(() => {
@@ -34,7 +29,7 @@ const rendered = computed(() => {
 </script>
 
 <style scoped>
-.prd-viewer {
+.plan-viewer {
   padding: 8px 0;
   line-height: 1.8;
 }

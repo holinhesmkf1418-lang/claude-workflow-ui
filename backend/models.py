@@ -14,9 +14,14 @@ class Project(SQLModel, table=True):
     )
     project_idea: str = Field(max_length=10000)
     model: Optional[str] = Field(default=None, max_length=100)  # 使用的模型名
-    status: str = Field(default="pending")  # pending | running | completed | failed
+    github_repo: Optional[str] = Field(default=None, max_length=500)  # 远程仓库地址
+    status: str = Field(default="pending")  # pending | running | awaiting_input | completed | failed
     status_detail: str = Field(default="")  # 当前步骤描述
     error: Optional[str] = Field(default=None, max_length=5000)
+
+    # 交互式暂停：灵魂追问
+    pending_questions: Optional[str] = Field(default=None, max_length=10000)  # JSON array of questions
+    user_answers: Optional[str] = Field(default=None, max_length=10000)       # JSON object {q_idx: answer}
 
     prd: Optional[str] = Field(default=None, max_length=100000)
     architecture: Optional[str] = Field(default=None, max_length=100000)

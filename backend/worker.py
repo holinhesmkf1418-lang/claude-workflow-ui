@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, AsyncGenerator
 
 from openai import AsyncOpenAI
 from sqlmodel import Session, select
@@ -23,6 +23,10 @@ logger = logging.getLogger("worker")
 
 # ─── DeepSeek client ──────────────────────────────────────
 _client: Optional[AsyncOpenAI] = None
+
+# Asyncio events for pausing the workflow awaiting user input.
+# Keyed by project_id, set by main.py's answer endpoint.
+pause_events: dict[str, asyncio.Event] = {}
 
 
 def get_client() -> AsyncOpenAI:
@@ -354,6 +358,54 @@ WORK_RULES = """# 工作要求
 
 # ─── Helpers ─────────────────────────────────────────────────
 
+async def stream_call_llm(prompt: str, *, model: Optional[str] = None, max_tokens: int = 8192) -> AsyncGenerator[str, None]:
+    """Call LLM with streaming, yielding content tokens as they arrive."""
+    client = get_client()
+    resp = await client.chat.completions.create(
+        model=model or settings.deepseek_model,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+        timeout=120,
+    )
+    async for chunk in resp:
+        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+
+
+async def stream_step(
+    step_name: str,
+    prompt: str,
+    stream_queue: asyncio.Queue,
+    model: Optional[str] = None,
+) -> str:
+    """Run a streaming LLM step, pushing tokens to the queue. Returns full content."""
+    full_content = ""
+    await stream_queue.put({
+        "event": "step_start",
+        "data": json.dumps({"step": step_name}, ensure_ascii=False),
+    })
+    try:
+        async for token in stream_call_llm(prompt, model=model):
+            full_content += token
+            await stream_queue.put({
+                "event": "token",
+                "data": json.dumps({"step": step_name, "content": token}, ensure_ascii=False),
+            })
+    except Exception as e:
+        logger.error(f"Stream step '{step_name}' failed: {e}")
+        await stream_queue.put({
+            "event": "step_error",
+            "data": json.dumps({"step": step_name, "error": str(e)}, ensure_ascii=False),
+        })
+        raise
+    await stream_queue.put({
+        "event": "step_end",
+        "data": json.dumps({"step": step_name}, ensure_ascii=False),
+    })
+    return full_content
+
+
 async def call_llm(prompt: str, *, model: Optional[str] = None, max_tokens: int = 8192, max_retries: int = 3) -> str:
     """Call DeepSeek with retry on transient errors. 3 retries with exponential backoff."""
     last_error = None
@@ -406,16 +458,91 @@ def extract_claude_md(architecture: str) -> str:
     return architecture[:500]
 
 
+def extract_questions_from_prd(prd: str) -> list[str]:
+    """Extract the PM's soul-searching questions from the PRD text.
+
+    Looks for a section titled '灵魂追问' and extracts numbered or bulleted lines.
+    Returns a list of question strings, or empty list if none found.
+    """
+    # Find the soul-searching questions section header.
+    # The header may look like:
+    #   **5. PM 的灵魂追问（3-5 个）**
+    #   ### **5. PM 的灵魂追问（3-5 个）**
+    #   **PM 的灵魂追问**
+    # followed by a blank line, then numbered questions.
+    m = re.search(
+        r"(?:灵魂追问)[^）)]*?[）)]?\s*\*{0,2}\s*\n(.*?)(?:\n(?:\*{2,}#|#{2,}\s*\*{0,2}|---)|$)",
+        prd,
+        re.DOTALL,
+    )
+    if not m:
+        return []
+
+    section = m.group(1).strip()
+    questions = []
+    for line in section.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Match numbered (1. / 1） / 1.) or bulleted (- / *) questions
+        if re.match(r"^(?:\d+\s*[.、）)\)]\s*|[-*]\s+)", line):
+            # Remove the prefix
+            q = re.sub(r"^\d+\s*[.、）)\)]\s*|^[-*]\s+", "", line).strip()
+            if q and len(q) > 5 and ("?" in q or "？" in q or "?" in q):
+                questions.append(q)
+    return questions[:10]  # at most 10
+
+
+def format_questions_html(questions: list[str]) -> str:
+    """Format questions as a bullet list for the architecture prompt context."""
+    if not questions:
+        return "用户未提供对追问的回答，按默认假设继续。"
+    return "\n".join(f"- {q}: {a}" for q, a in questions)
+
+
+import json as _json
+
+
+def calculate_answer_context(project_id: str, questions: list[str]) -> str:
+    """Read user answers from DB and format them for prompt context."""
+    from database import engine as _engine
+    with Session(_engine) as session:
+        from models import Project as _Project
+        p = session.get(_Project, project_id)
+        if p and p.user_answers:
+            try:
+                answers = _json.loads(p.user_answers)
+                lines = []
+                for i, q in enumerate(questions):
+                    a = answers.get(str(i), "").strip()
+                    if a:
+                        lines.append(f"- ❓ {q}\n  💡 用户回答: {a}")
+                if lines:
+                    return "\n\n".join(lines)
+            except (_json.JSONDecodeError, Exception):
+                pass
+    return "用户未提供额外说明。"
+
+
 def assemble_codex_instruction(
     task: dict,
     project_header: str,
     clan_md: str,
+    github_repo: str = "",
 ) -> str:
     """Assemble the complete Codex-ready instruction for one task."""
+    work_rules = WORK_RULES
+    if github_repo:
+        work_rules += (
+            f"\n7. 推送远程仓库：每个 Task 完成后执行以下命令推送到远程：\n"
+            f"   git add . && git commit -m \"Task{task['id']}: {task['title']}\" && git push\n"
+            f"   远程仓库地址：{github_repo}"
+        )
+
     parts = [
         project_header,
         "",
-        WORK_RULES,
+        work_rules,
         "",
         f"# 家规\n{clan_md}",
         "",
@@ -446,39 +573,92 @@ def update_project_in_db(project_id: str, **kwargs):
 
 # ─── Main workflow ───────────────────────────────────────────
 
-async def run_workflow(project_id: str, project_idea: str, model: Optional[str] = None):
+async def run_workflow(project_id: str, project_idea: str, model: Optional[str] = None, github_repo: Optional[str] = None, stream_queue: Optional[asyncio.Queue] = None):
     """
     Run the 3-step workflow as a background async task.
 
     Steps:
-      1. PRD generation
-      2. Architecture design
-      3a. Development plan
+      1. PRD generation (streaming when stream_queue is provided)
+      2. Architecture design (streaming when stream_queue is provided)
+      3a. Development plan (streaming when stream_queue is provided)
       3b. Structured task extraction
     """
     logger.info(f"[{project_id}] Workflow started: {project_idea[:60]}...")
 
-    # Save selected model to project record
+    # Save selected model and github repo to project record
     if model:
         update_project_in_db(project_id, model=model)
+    if github_repo:
+        update_project_in_db(project_id, github_repo=github_repo)
 
     try:
         # ── Step 1: PRD ────────────────────────────────────
         update_project_in_db(project_id, status="running", status_detail="需求推演中…")
         logger.info(f"[{project_id}] Step 1/4: PRD generation ({model or 'default'})")
-        prd = await call_llm(PRD_PROMPT.format(project_idea=project_idea), model=model)
+        if stream_queue:
+            prd = await stream_step("prd", PRD_PROMPT.format(project_idea=project_idea), stream_queue, model=model)
+        else:
+            prd = await call_llm(PRD_PROMPT.format(project_idea=project_idea), model=model)
         update_project_in_db(project_id, prd=prd, status_detail="✅ 需求推演完成")
 
-        # ── Step 2: Architecture ────────────────────────────
+        # ── Extract 灵魂追问 and pause for user input ──────
+        questions = extract_questions_from_prd(prd)
+        if questions and stream_queue:
+            logger.info(f"[{project_id}] Pausing for {len(questions)} questions from user")
+            update_project_in_db(
+                project_id,
+                status="awaiting_input",
+                status_detail=f"💬 请回答 {len(questions)} 个追问",
+                pending_questions=json.dumps(questions, ensure_ascii=False),
+            )
+            # Notify frontend with the questions
+            await stream_queue.put({
+                "event": "awaiting_input",
+                "data": json.dumps({"questions": questions}, ensure_ascii=False),
+            })
+            # Wait for user's answers (asyncio.Event is set by main.py answer endpoint)
+            event = asyncio.Event()
+            pause_events[project_id] = event
+            await event.wait()
+            pause_events.pop(project_id, None)
+            logger.info(f"[{project_id}] User answered questions, resuming")
+            update_project_in_db(
+                project_id,
+                status="running",
+                status_detail="🏗️ 继续架构设计中…（已收到回答）",
+            )
+        elif questions:
+            logger.info(f"[{project_id}] Questions extracted but no stream queue, continuing anyway")
+
+        # ── Step 2: Architecture (with user answers context) ──
         update_project_in_db(project_id, status_detail="架构设计中…")
         logger.info(f"[{project_id}] Step 2/4: Architecture design")
-        architecture = await call_llm(ARCH_PROMPT.format(prd=prd), model=model)
+        # Build architecture prompt, incorporating user answers if available
+        arch_prompt = ARCH_PROMPT.format(prd=prd)
+        answer_context = calculate_answer_context(project_id, questions)
+        if answer_context:
+            arch_prompt = (
+                "## 用户对追问的回答\n"
+                "以下是用户对 PRD 追问的补充说明，请在设计架构时充分考虑这些输入：\n"
+                f"{answer_context}\n\n"
+                "---\n\n"
+                f"{arch_prompt}"
+            )
+        logger.info(f"[{project_id}] Architecture prompt length: {len(arch_prompt)} (with answers)" if answer_context
+                     else f"[{project_id}] Architecture prompt length: {len(arch_prompt)} (no answers)")
+        if stream_queue:
+            architecture = await stream_step("architecture", arch_prompt, stream_queue, model=model)
+        else:
+            architecture = await call_llm(arch_prompt, model=model)
         update_project_in_db(project_id, architecture=architecture, status_detail="✅ 架构设计完成")
 
         # ── Step 3a: Development Plan ──────────────────────
         update_project_in_db(project_id, status_detail="生成开发计划中…")
         logger.info(f"[{project_id}] Step 3/4: Development plan")
-        plan = await call_llm(PLAN_PROMPT.format(prd=prd, architecture=architecture), model=model)
+        if stream_queue:
+            plan = await stream_step("plan", PLAN_PROMPT.format(prd=prd, architecture=architecture), stream_queue, model=model)
+        else:
+            plan = await call_llm(PLAN_PROMPT.format(prd=prd, architecture=architecture), model=model)
         update_project_in_db(project_id, plan=plan, status_detail="✅ 开发计划完成")
 
         # ── Step 3b: Structured Tasks ──────────────────────
@@ -488,7 +668,8 @@ async def run_workflow(project_id: str, project_idea: str, model: Optional[str] 
 
         # ── Assemble task records ─────────────────────────
         clan_md = extract_claude_md(architecture)
-        project_header = f"# 项目上下文\n项目想法：{project_idea}"
+        repo_line = f"\nGitHub 仓库：{github_repo}" if github_repo else ""
+        project_header = f"# 项目上下文\n项目想法：{project_idea}{repo_line}"
 
         with Session(engine) as session:
             db_project = session.get(Project, project_id)
@@ -500,7 +681,7 @@ async def run_workflow(project_id: str, project_idea: str, model: Optional[str] 
                     session.delete(t)
 
                 for t in raw_tasks:
-                    codex_inst = assemble_codex_instruction(t, project_header, clan_md)
+                    codex_inst = assemble_codex_instruction(t, project_header, clan_md, github_repo or "")
                     task = Task(
                         project_id=project_id,
                         task_id=t["id"],
@@ -533,3 +714,7 @@ async def run_workflow(project_id: str, project_idea: str, model: Optional[str] 
             status_detail="❌ Workflow 执行失败",
             error=str(e),
         )
+    finally:
+        # Clean up the stream queue
+        if stream_queue is not None:
+            stream_queue.put_nowait({"event": "workflow_done", "data": "{}"})

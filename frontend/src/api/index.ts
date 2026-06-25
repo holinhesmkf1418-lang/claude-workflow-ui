@@ -16,10 +16,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   /** Create a new project and launch workflow */
-  createProject(projectIdea: string, model?: string): Promise<Project> {
+  createProject(projectIdea: string, model?: string, githubRepo?: string): Promise<Project> {
     return request('/projects', {
       method: 'POST',
-      body: JSON.stringify({ project_idea: projectIdea, model: model || undefined }),
+      body: JSON.stringify({
+        project_idea: projectIdea,
+        model: model || undefined,
+        github_repo: githubRepo || undefined,
+      }),
     })
   },
 
@@ -63,6 +67,14 @@ export const api = {
         project_id: projectId || undefined,
         tech_stack: techStack || undefined,
       }),
+    })
+  },
+
+  /** Submit answers to PM's soul-searching questions and resume workflow */
+  answerQuestions(projectId: string, answers: Record<string, string>): Promise<{ ok: boolean }> {
+    return request(`/projects/${projectId}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answers }),
     })
   },
 
