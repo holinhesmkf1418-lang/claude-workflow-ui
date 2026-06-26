@@ -16,13 +16,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   /** Create a new project and launch workflow */
-  createProject(projectIdea: string, model?: string, githubRepo?: string): Promise<Project> {
+  createProject(projectIdea: string, model?: string, githubRepo?: string, projectDir?: string): Promise<Project> {
     return request('/projects', {
       method: 'POST',
       body: JSON.stringify({
         project_idea: projectIdea,
         model: model || undefined,
         github_repo: githubRepo || undefined,
+        project_dir: projectDir || undefined,
       }),
     })
   },

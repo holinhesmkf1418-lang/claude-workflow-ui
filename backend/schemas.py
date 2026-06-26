@@ -8,6 +8,7 @@ class ProjectCreate(BaseModel):
     project_idea: str
     model: Optional[str] = None
     github_repo: Optional[str] = None
+    project_dir: Optional[str] = None
 
 
 class TaskOut(BaseModel):
@@ -34,6 +35,7 @@ class ProjectOut(BaseModel):
     status_detail: str
     error: Optional[str] = None
     github_repo: Optional[str] = None
+    project_dir: Optional[str] = None
     pending_questions: Optional[str] = None  # JSON array of questions
     user_answers: Optional[str] = None       # JSON object
     prd: Optional[str] = None

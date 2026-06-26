@@ -183,8 +183,8 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  async function createAndWatch(projectIdea: string, model?: string, githubRepo?: string) {
-    const project = await api.createProject(projectIdea, model, githubRepo)
+  async function createAndWatch(projectIdea: string, model?: string, githubRepo?: string, projectDir?: string) {
+    const project = await api.createProject(projectIdea, model, githubRepo, projectDir)
     currentProject.value = project
     connectSSE(project.id)
     return project

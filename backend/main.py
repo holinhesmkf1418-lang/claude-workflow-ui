@@ -87,6 +87,7 @@ def _project_to_out(project: Project) -> ProjectOut:
         project_idea=project.project_idea,
         model=project.model,
         github_repo=project.github_repo,
+        project_dir=project.project_dir,
         status=project.status,
         status_detail=project.status_detail,
         error=project.error,
@@ -107,6 +108,7 @@ def _project_to_list(project: Project) -> ProjectListItem:
         project_idea=project.project_idea,
         model=project.model,
         github_repo=project.github_repo,
+        project_dir=project.project_dir,
         status=project.status,
         status_detail=project.status_detail,
         created_at=project.created_at,
@@ -127,6 +129,7 @@ async def create_project(body: ProjectCreate):
         project = Project(
             project_idea=body.project_idea,
             github_repo=body.github_repo,
+            project_dir=body.project_dir,
         )
         session.add(project)
         session.commit()
@@ -141,6 +144,7 @@ async def create_project(body: ProjectCreate):
     asyncio.create_task(run_workflow(
         project_id, body.project_idea,
         model=body.model, github_repo=body.github_repo,
+        project_dir=body.project_dir,
         stream_queue=queue,
     ))
 

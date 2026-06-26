@@ -15,6 +15,7 @@ class Project(SQLModel, table=True):
     project_idea: str = Field(max_length=10000)
     model: Optional[str] = Field(default=None, max_length=100)  # 使用的模型名
     github_repo: Optional[str] = Field(default=None, max_length=500)  # 远程仓库地址
+    project_dir: Optional[str] = Field(default=None, max_length=1000)  # 本地项目目录
     status: str = Field(default="pending")  # pending | running | awaiting_input | completed | failed
     status_detail: str = Field(default="")  # 当前步骤描述
     error: Optional[str] = Field(default=None, max_length=5000)

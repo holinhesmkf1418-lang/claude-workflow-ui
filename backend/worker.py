@@ -571,9 +571,57 @@ def update_project_in_db(project_id: str, **kwargs):
         session.commit()
 
 
+# ─── Export to local project directory ───────────────────────
+
+def export_to_project_dir(project_dir: str, prd: str, architecture: str, plan: str, tasks: list) -> None:
+    """Write workflow output files to the local project directory."""
+    import os
+
+    # Resolve path
+    path = os.path.expanduser(project_dir)
+    if not os.path.isabs(path):
+        path = os.path.abspath(path)
+
+    workflow_dir = os.path.join(path, ".workflow")
+    tasks_dir = os.path.join(workflow_dir, "tasks")
+    os.makedirs(tasks_dir, exist_ok=True)
+
+    # Write main documents
+    docs = {
+        "PRD.md": prd,
+        "architecture.md": architecture,
+        "plan.md": plan,
+    }
+    for filename, content in docs.items():
+        if content:
+            with open(os.path.join(workflow_dir, filename), "w", encoding="utf-8") as f:
+                f.write(content)
+
+    # Write individual task files
+    for t in tasks:
+        task_filename = f"Task-{t['id']}-{t['title'].replace('/', '-').replace(' ', '-')}.md"
+        instruction = assemble_codex_instruction(
+            t,
+            f"# 项目上下文\n项目想法：{t.get('project_idea', '')}",
+            t.get("clan_md", ""),
+        )
+        with open(os.path.join(tasks_dir, task_filename), "w", encoding="utf-8") as f:
+            f.write(instruction)
+
+    # Write a TOC index
+    with open(os.path.join(workflow_dir, "index.md"), "w", encoding="utf-8") as f:
+        f.write("# Workflow 输出\n\n")
+        f.write(f"- [PRD](PRD.md)\n- [架构设计](architecture.md)\n- [开发计划](plan.md)\n- [Task 清单](tasks/)\n\n")
+        for t in tasks:
+            filename = f"Task-{t['id']}-{t['title'].replace('/', '-').replace(' ', '-')}.md"
+            f.write(f"  - [{t['id']} {t['title']}](tasks/{filename})\n")
+
+    logger.info(f"Workflow exported to {workflow_dir}")
+
+
 # ─── Main workflow ───────────────────────────────────────────
 
-async def run_workflow(project_id: str, project_idea: str, model: Optional[str] = None, github_repo: Optional[str] = None, stream_queue: Optional[asyncio.Queue] = None):
+async def run_workflow(project_id: str, project_idea: str, model: Optional[str] = None, github_repo: Optional[str] = None, project_dir: Optional[str] = None, stream_queue: Optional[asyncio.Queue] = None):
     """
     Run the 3-step workflow as a background async task.
 
@@ -696,6 +744,13 @@ async def run_workflow(project_id: str, project_idea: str, model: Optional[str] 
                     )
                     session.add(task)
                 session.commit()
+
+        # ── Export to local project directory ───────────────
+        if project_dir:
+            try:
+                export_to_project_dir(project_dir, prd, architecture, plan, raw_tasks)
+            except Exception as exp_err:
+                logger.warning(f"[{project_id}] Failed to export to project dir: {exp_err}")
 
         update_project_in_db(
             project_id,

@@ -169,6 +169,7 @@ async function handleSubmit() {
       form.value.projectIdea,
       form.value.model || undefined,
       form.value.githubRepo || undefined,
+      form.value.projectDir || undefined,
     )
     ElMessage.success('Workflow 已启动！正在跳转…')
     router.push(`/projects/${project.id}`)
