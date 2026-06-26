@@ -84,6 +84,11 @@ export const api = {
     return request(`/projects/${projectId}`, { method: 'DELETE' })
   },
 
+  /** Cancel a running workflow */
+  cancelProject(projectId: string): Promise<{ ok: boolean }> {
+    return request(`/projects/${projectId}/cancel`, { method: 'POST' })
+  },
+
   /** Analyze error log (BUG 调试) */
   debugAnalyze(errorLog: string, codeContext?: string, projectId?: string): Promise<{
     state: string

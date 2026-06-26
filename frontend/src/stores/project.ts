@@ -132,6 +132,19 @@ export const useProjectStore = defineStore('project', () => {
       } catch { /* ignore */ }
     })
 
+    eventSource.addEventListener('timeout_skip', () => {
+      // Backend timed out the question wait — clear questions
+      // The UI (QuestionDialog) will close via the update event
+      pendingQuestions.value = []
+    })
+
+    eventSource.addEventListener('cancelled', () => {
+      isStreaming.value = false
+      activeStep.value = null
+      pendingQuestions.value = []
+      disconnectSSE()
+    })
+
     eventSource.addEventListener('completed', (e) => {
       try {
         currentProject.value = JSON.parse(e.data)

@@ -37,6 +37,17 @@
           </div>
         </div>
         <div class="header-actions">
+          <el-popconfirm
+            v-if="project.status === 'running' || project.status === 'awaiting_input'"
+            title="确定取消 Workflow？"
+            confirm-button-text="取消"
+            cancel-button-text="不取消"
+            @confirm="handleCancel"
+          >
+            <template #reference>
+              <el-button :icon="Remove" type="danger" plain>取消 Workflow</el-button>
+            </template>
+          </el-popconfirm>
           <el-button :icon="Plus" @click="$router.push('/')">开始新项目</el-button>
         </div>
       </div>
@@ -141,7 +152,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, Plus, Loading } from '@element-plus/icons-vue'
+import { ArrowLeft, Plus, Loading, Remove } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useProjectStore } from '@/stores/project'
 import { api } from '@/api'
 import StatusTimeline from '@/components/StatusTimeline.vue'
@@ -166,6 +178,7 @@ const statusTag = computed(() => {
     completed: 'success',
     running: 'warning',
     awaiting_input: 'warning',
+    cancelled: 'info',
     failed: 'danger',
     pending: 'info',
   }
@@ -252,8 +265,17 @@ function formatTime(ts: string) {
 }
 
 function onQuestionsDone() {
-  // Questions answered, workflow resumed — switch to architecture tab to see streaming
   activeTab.value = 'architecture'
+}
+
+async function handleCancel() {
+  if (!project.value) return
+  try {
+    await api.cancelProject(project.value.id)
+    ElMessage.info('Workflow 已取消')
+  } catch (e: any) {
+    ElMessage.error(e.message || '取消失败')
+  }
 }
 
 onMounted(async () => {

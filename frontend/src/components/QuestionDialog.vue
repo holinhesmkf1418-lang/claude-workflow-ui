@@ -13,6 +13,12 @@
       PRD 需求推演已完成。架构师在继续设计前，有以下问题需要你确认：
     </div>
 
+    <!-- Timeout countdown -->
+    <div class="timeout-bar" :class="{ urgent: remaining <= 60 }">
+      <el-icon :size="16"><Timer /></el-icon>
+      <span>超时自动跳过：<strong>{{ formatTime(remaining) }}</strong></span>
+    </div>
+
     <div class="question-list">
       <div
         v-for="(q, idx) in questions"
@@ -58,8 +64,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, reactive } from 'vue'
+import { ref, watch, reactive, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Timer } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/stores/project'
 
 const props = defineProps<{
@@ -70,31 +77,59 @@ const emit = defineEmits<{
   done: []
 }>()
 
+const TIMEOUT_SECONDS = 600  // 10 minutes
+
 const store = useProjectStore()
 const visible = ref(false)
 const submitting = ref(false)
+const remaining = ref(TIMEOUT_SECONDS)
 
-// Reactive dict for form inputs
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
 const answers = reactive<Record<number, string>>({})
+
+function startCountdown() {
+  remaining.value = TIMEOUT_SECONDS
+  stopCountdown()
+  countdownTimer = setInterval(() => {
+    remaining.value--
+    if (remaining.value <= 0) {
+      stopCountdown()
+      handleSkip()
+    }
+  }, 1000)
+}
+
+function stopCountdown() {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
 
 watch(() => props.questions.length, (n) => {
   if (n > 0) {
     visible.value = true
-    // Initialize empty answers
     for (let i = 0; i < n; i++) {
       answers[i] = ''
     }
+    startCountdown()
   } else {
     visible.value = false
+    stopCountdown()
   }
 }, { immediate: true })
 
 async function handleSubmit() {
-  // Safety: if project is no longer awaiting input, just close
   if (store.currentProject?.status !== 'awaiting_input') {
     ElMessage.info('项目已完成或已继续，无需重复回答')
-    visible.value = false
-    emit('done')
+    close()
     return
   }
 
@@ -106,14 +141,11 @@ async function handleSubmit() {
     }
     await store.submitAnswers(payload)
     ElMessage.success(`已提交 ${props.questions.length} 个回答，继续架构设计`)
-    visible.value = false
-    emit('done')
+    close()
   } catch (e: any) {
-    // If the project was already resumed, just close gracefully
     if (store.currentProject?.status !== 'awaiting_input') {
       ElMessage.info('项目已继续，无需重复回答')
-      visible.value = false
-      emit('done')
+      close()
     } else {
       ElMessage.error(e.message || '提交失败')
     }
@@ -123,11 +155,9 @@ async function handleSubmit() {
 }
 
 async function handleSkip() {
-  // Safety: if project is no longer awaiting input, just close
   if (store.currentProject?.status !== 'awaiting_input') {
     ElMessage.info('项目已完成或已继续')
-    visible.value = false
-    emit('done')
+    close()
     return
   }
 
@@ -138,15 +168,15 @@ async function handleSkip() {
       payload[String(i)] = ''
     }
     await store.submitAnswers(payload)
-    ElMessage.info('已跳过追问，继续架构设计')
-    visible.value = false
-    emit('done')
+    if (remaining.value > 0) {
+      ElMessage.info('已跳过追问，继续架构设计')
+    } else {
+      ElMessage.info('⏰ 追问超时，已自动跳过')
+    }
+    close()
   } catch (e: any) {
-    // If the project was already resumed, just close gracefully
     if (store.currentProject?.status !== 'awaiting_input') {
-      ElMessage.info('项目已继续')
-      visible.value = false
-      emit('done')
+      close()
     } else {
       ElMessage.error(e.message || '跳过失败')
     }
@@ -154,17 +184,45 @@ async function handleSkip() {
     submitting.value = false
   }
 }
+
+function close() {
+  visible.value = false
+  stopCountdown()
+  emit('done')
+}
+
+onUnmounted(() => {
+  stopCountdown()
+})
 </script>
 
 <style scoped>
 .dialog-desc {
   font-size: 14px;
   color: #606266;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   line-height: 1.6;
   padding: 12px 16px;
   background: #f5f7fa;
   border-radius: 8px;
+}
+.timeout-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #909399;
+  background: #fff7e6;
+  border-radius: 6px;
+  border: 1px solid #ffe58f;
+  transition: all 0.3s;
+}
+.timeout-bar.urgent {
+  background: #fff2f0;
+  border-color: #ffccc7;
+  color: #f56c6c;
 }
 .question-list {
   display: flex;

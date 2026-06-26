@@ -619,6 +619,21 @@ def export_to_project_dir(project_dir: str, prd: str, architecture: str, plan: s
     logger.info(f"Workflow exported to {workflow_dir}")
 
 
+# ─── Cancellation support ────────────────────────────────────
+
+class WorkflowCancelled(Exception):
+    """Raised when the user cancels the workflow."""
+    pass
+
+
+def check_cancelled(project_id: str) -> None:
+    """Check if the workflow has been cancelled. Raises WorkflowCancelled if so."""
+    with Session(engine) as session:
+        p = session.get(Project, project_id)
+        if p and p.status == "cancelled":
+            raise WorkflowCancelled()
+
+
 # ─── Main workflow ───────────────────────────────────────────
 
 async def run_workflow(project_id: str, project_idea: str, model: Optional[str] = None, github_repo: Optional[str] = None, project_dir: Optional[str] = None, stream_queue: Optional[asyncio.Queue] = None):
@@ -665,18 +680,41 @@ async def run_workflow(project_id: str, project_idea: str, model: Optional[str] 
                 "data": json.dumps({"questions": questions}, ensure_ascii=False),
             })
             # Wait for user's answers (asyncio.Event is set by main.py answer endpoint)
+            # Timeout after 10 minutes — auto-skip if unanswered
             event = asyncio.Event()
             pause_events[project_id] = event
-            await event.wait()
-            pause_events.pop(project_id, None)
-            logger.info(f"[{project_id}] User answered questions, resuming")
-            update_project_in_db(
-                project_id,
-                status="running",
-                status_detail="🏗️ 继续架构设计中…（已收到回答）",
-            )
+            try:
+                await asyncio.wait_for(event.wait(), timeout=600)
+                pause_events.pop(project_id, None)
+                # Check if cancelled while waiting (cancel API also sets this event)
+                check_cancelled(project_id)
+                logger.info(f"[{project_id}] User answered questions, resuming")
+                update_project_in_db(
+                    project_id,
+                    status="running",
+                    status_detail="🏗️ 继续架构设计中…（已收到回答）",
+                )
+            except asyncio.TimeoutError:
+                pause_events.pop(project_id, None)
+                logger.info(f"[{project_id}] Question timeout after 10min, auto-skipping")
+                update_project_in_db(
+                    project_id,
+                    user_answers=json.dumps({}),
+                    pending_questions=None,
+                    status="running",
+                    status_detail="⏰ 追问超时，自动跳过继续架构设计",
+                )
+                # Notify frontend that the timeout happened
+                if stream_queue:
+                    await stream_queue.put({
+                        "event": "timeout_skip",
+                        "data": json.dumps({"step": "questions", "message": "追问超时，已自动跳过"}),
+                    })
         elif questions:
             logger.info(f"[{project_id}] Questions extracted but no stream queue, continuing anyway")
+
+        # ── Check cancellation before architecture ──
+        check_cancelled(project_id)
 
         # ── Step 2: Architecture (with user answers context) ──
         update_project_in_db(project_id, status_detail="架构设计中…")
@@ -700,6 +738,9 @@ async def run_workflow(project_id: str, project_idea: str, model: Optional[str] 
             architecture = await call_llm(arch_prompt, model=model)
         update_project_in_db(project_id, architecture=architecture, status_detail="✅ 架构设计完成")
 
+        # ── Check cancellation before plan ──
+        check_cancelled(project_id)
+
         # ── Step 3a: Development Plan ──────────────────────
         update_project_in_db(project_id, status_detail="生成开发计划中…")
         logger.info(f"[{project_id}] Step 3/4: Development plan")
@@ -708,6 +749,9 @@ async def run_workflow(project_id: str, project_idea: str, model: Optional[str] 
         else:
             plan = await call_llm(PLAN_PROMPT.format(prd=prd, architecture=architecture), model=model)
         update_project_in_db(project_id, plan=plan, status_detail="✅ 开发计划完成")
+
+        # ── Check cancellation before task extraction ──
+        check_cancelled(project_id)
 
         # ── Step 3b: Structured Tasks ──────────────────────
         update_project_in_db(project_id, status_detail="提取 Task 清单中…")
@@ -761,6 +805,9 @@ async def run_workflow(project_id: str, project_idea: str, model: Optional[str] 
             f"[{project_id}] Workflow completed — {len(raw_tasks)} tasks generated"
         )
 
+    except WorkflowCancelled:
+        logger.info(f"[{project_id}] Workflow cancelled by user")
+        # Status already set to "cancelled" by the cancel API endpoint
     except Exception as e:
         logger.exception(f"[{project_id}] Workflow failed")
         update_project_in_db(

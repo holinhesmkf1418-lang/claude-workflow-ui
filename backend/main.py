@@ -222,6 +222,36 @@ async def delete_project(project_id: str):
     return {"ok": True, "message": "Project deleted"}
 
 
+@app.post("/api/projects/{project_id}/cancel")
+async def cancel_project(project_id: str):
+    """Cancel a running workflow."""
+    with Session(engine) as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if project.status not in ("running", "awaiting_input"):
+            raise HTTPException(status_code=400, detail="Project is not running")
+
+        # Mark as cancelled
+        project.status = "cancelled"
+        project.status_detail = "⏹️ 已取消"
+        project.updated_at = datetime.now(timezone.utc)
+        session.add(project)
+        session.commit()
+
+    # Wake up the worker if it's paused waiting for input
+    event = pause_events.pop(project_id, None)
+    if event:
+        event.set()
+
+    # Put a cancellation event in the stream queue so SSE forwards it
+    queue = stream_queues.get(project_id)
+    if queue is not None:
+        queue.put_nowait({"event": "cancelled", "data": "{}"})
+
+    return {"ok": True, "message": "Workflow cancelled"}
+
+
 @app.get("/api/projects/{project_id}/stream")
 async def stream_project(project_id: str, request: Request):
     """SSE endpoint for real-time workflow progress.
@@ -262,7 +292,7 @@ async def stream_project(project_id: str, request: Request):
                     while True:
                         event = await asyncio.wait_for(queue.get(), timeout=queue_timeout)
                         yield event
-                        if event.get("event") in ("completed", "failed"):
+                        if event.get("event") in ("completed", "failed", "cancelled"):
                             return
                 except asyncio.TimeoutError:
                     pass
@@ -287,6 +317,11 @@ async def stream_project(project_id: str, request: Request):
                 if project.status == "failed":
                     data = _dump()
                     yield {"event": "failed", "data": data}
+                    stream_queues.pop(project_id, None)
+                    break
+                if project.status == "cancelled":
+                    data = _dump()
+                    yield {"event": "cancelled", "data": data}
                     stream_queues.pop(project_id, None)
                     break
 
