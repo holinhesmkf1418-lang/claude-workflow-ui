@@ -14,6 +14,11 @@
           <router-link to="/audit" class="nav-link">🔍 审计</router-link>
           <router-link to="/design" class="nav-link">🎨 设计</router-link>
         </div>
+        <!-- SSE connection indicator -->
+        <div class="connection-indicator" :class="{ connected: store.isStreaming }">
+          <span class="dot"></span>
+          <span class="label">{{ store.isStreaming ? '已连接' : '未连接' }}</span>
+        </div>
       </div>
     </el-header>
     <el-main class="app-main">
@@ -23,6 +28,9 @@
 </template>
 
 <script setup lang="ts">
+import { useProjectStore } from '@/stores/project'
+
+const store = useProjectStore()
 </script>
 
 <style scoped>
@@ -76,6 +84,33 @@
 }
 .nav-link:hover {
   color: #409eff;
+}
+.connection-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: #f5f7fa;
+  font-size: 12px;
+  color: #909399;
+  white-space: nowrap;
+  transition: all 0.3s;
+}
+.connection-indicator .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c0c4cc;
+  transition: background 0.3s;
+}
+.connection-indicator.connected {
+  background: #e6f7e6;
+  color: #67c23a;
+}
+.connection-indicator.connected .dot {
+  background: #67c23a;
+  box-shadow: 0 0 4px rgba(103, 194, 58, 0.5);
 }
 .app-main {
   max-width: 1200px;

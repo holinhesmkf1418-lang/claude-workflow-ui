@@ -196,6 +196,28 @@ async def answer_project_questions(project_id: str, body: AnswerRequest):
     return {"ok": True, "message": f"已回答 {len(body.answers)} 个问题，继续架构设计"}
 
 
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: str):
+    """Delete a project and its tasks, clean up streaming resources."""
+    # Clean up in-memory resources
+    stream_queues.pop(project_id, None)
+    pause_events.pop(project_id, None)
+
+    with Session(engine) as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Delete tasks first (cascade should handle this, but be explicit)
+        tasks = session.exec(select(Task).where(Task.project_id == project_id)).all()
+        for t in tasks:
+            session.delete(t)
+        session.delete(project)
+        session.commit()
+
+    return {"ok": True, "message": "Project deleted"}
+
+
 @app.get("/api/projects/{project_id}/stream")
 async def stream_project(project_id: str, request: Request):
     """SSE endpoint for real-time workflow progress.

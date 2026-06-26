@@ -78,6 +78,11 @@ export const api = {
     })
   },
 
+  /** Delete a project */
+  deleteProject(projectId: string): Promise<{ ok: boolean }> {
+    return request(`/projects/${projectId}`, { method: 'DELETE' })
+  },
+
   /** Analyze error log (BUG 调试) */
   debugAnalyze(errorLog: string, codeContext?: string, projectId?: string): Promise<{
     state: string

@@ -64,32 +64,65 @@
     </el-card>
 
     <!-- Recent projects -->
-    <div class="recent-section" v-if="recentProjects.length > 0">
-      <h2 class="section-title">最近项目</h2>
+    <div class="recent-section" v-if="filteredProjects.length > 0 || searchQuery">
+      <div class="section-header">
+        <h2 class="section-title">项目列表</h2>
+        <el-input
+          v-model="searchQuery"
+          class="search-input"
+          placeholder="搜索项目…"
+          clearable
+          prefix-icon="Search"
+          size="small"
+        />
+      </div>
       <el-timeline>
         <el-timeline-item
-          v-for="p in recentProjects"
+          v-for="p in filteredProjects"
           :key="p.id"
           :timestamp="formatTime(p.created_at)"
           :color="statusColor(p.status)"
         >
-          <el-link type="primary" @click="$router.push(`/projects/${p.id}`)">
-            {{ truncate(p.project_idea, 60) }}
-          </el-link>
-          <el-tag :type="statusTag(p.status)" size="small" style="margin-left: 8px">
-            {{ p.status_detail || p.status }}
-          </el-tag>
+          <div class="project-row">
+            <div class="project-info">
+              <el-link type="primary" @click="$router.push(`/projects/${p.id}`)">
+                {{ truncate(p.project_idea, 60) }}
+              </el-link>
+              <el-tag :type="statusTag(p.status)" size="small" style="margin-left: 8px">
+                {{ p.status_detail || p.status }}
+              </el-tag>
+            </div>
+            <el-popconfirm
+              title="确定删除此项目？"
+              confirm-button-text="删除"
+              cancel-button-text="取消"
+              @confirm="handleDelete(p.id)"
+            >
+              <template #reference>
+                <el-button
+                  text
+                  size="small"
+                  type="danger"
+                  :icon="Delete"
+                  :loading="deletingId === p.id"
+                />
+              </template>
+            </el-popconfirm>
+          </div>
         </el-timeline-item>
       </el-timeline>
+      <div v-if="filteredProjects.length === 0 && searchQuery" class="no-results">
+        没有找到匹配的项目
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Promotion } from '@element-plus/icons-vue'
+import { Promotion, Delete } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { useProjectStore } from '@/stores/project'
 import type { ProjectListItem } from '@/types'
@@ -101,6 +134,8 @@ const store = useProjectStore()
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const recentProjects = ref<ProjectListItem[]>([])
+const searchQuery = ref('')
+const deletingId = ref<string | null>(null)
 
 const form = ref({
   projectIdea: '',
@@ -115,6 +150,14 @@ const rules: FormRules = {
     { min: 10, message: '至少 10 个字符，描述清晰一些效果更好', trigger: 'blur' },
   ],
 }
+
+const filteredProjects = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return recentProjects.value
+  return recentProjects.value.filter(p =>
+    p.project_idea.toLowerCase().includes(q)
+  )
+})
 
 async function handleSubmit() {
   const valid = await formRef.value?.validate().catch(() => false)
@@ -133,6 +176,19 @@ async function handleSubmit() {
     ElMessage.error(e.message || '启动失败')
   } finally {
     submitting.value = false
+  }
+}
+
+async function handleDelete(id: string) {
+  deletingId.value = id
+  try {
+    await api.deleteProject(id)
+    recentProjects.value = recentProjects.value.filter(p => p.id !== id)
+    ElMessage.success('已删除')
+  } catch (e: any) {
+    ElMessage.error(e.message || '删除失败')
+  } finally {
+    deletingId.value = null
   }
 }
 
@@ -165,11 +221,13 @@ function formatTime(ts: string) {
   return d.toLocaleString('zh-CN')
 }
 
-onMounted(async () => {
+async function loadProjects() {
   try {
     recentProjects.value = await api.listProjects()
   } catch { /* silent */ }
-})
+}
+
+onMounted(loadProjects)
 </script>
 
 <style scoped>
@@ -201,10 +259,37 @@ onMounted(async () => {
   margin-top: 8px;
   margin-bottom: 0;
 }
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 32px 0 16px;
+}
 .section-title {
   font-size: 18px;
   font-weight: 600;
-  margin: 32px 0 16px;
   color: #303133;
+  margin: 0;
+}
+.search-input {
+  width: 200px;
+}
+.project-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.project-info {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.no-results {
+  text-align: center;
+  color: #909399;
+  padding: 24px 0;
+  font-size: 14px;
 }
 </style>
