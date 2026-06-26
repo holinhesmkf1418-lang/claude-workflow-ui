@@ -634,6 +634,15 @@ def check_cancelled(project_id: str) -> None:
             raise WorkflowCancelled()
 
 
+# ─── Safety helpers ──────────────────────────────────────────
+
+def _ensure_str(v, join_with: str = "\n") -> str:
+    """Ensure a value is a string. Converts lists by joining."""
+    if isinstance(v, list):
+        return join_with.join(str(x) for x in v)
+    return str(v) if v is not None else ""
+
+
 # ─── Main workflow ───────────────────────────────────────────
 
 async def run_workflow(project_id: str, project_idea: str, model: Optional[str] = None, github_repo: Optional[str] = None, project_dir: Optional[str] = None, stream_queue: Optional[asyncio.Queue] = None):
@@ -776,14 +785,14 @@ async def run_workflow(project_id: str, project_idea: str, model: Optional[str] 
                     codex_inst = assemble_codex_instruction(t, project_header, clan_md, github_repo or "")
                     task = Task(
                         project_id=project_id,
-                        task_id=t["id"],
-                        title=t["title"],
-                        phase=t.get("phase", ""),
-                        description=t.get("description", t.get("goal", "")),
-                        goal=t["goal"],
-                        requirements=t["requirements"],
-                        constraints=t.get("constraints"),
-                        acceptance=t["acceptance"],
+                        task_id=_ensure_str(t.get("id")),
+                        title=_ensure_str(t.get("title")),
+                        phase=_ensure_str(t.get("phase", "")),
+                        description=_ensure_str(t.get("description", t.get("goal", ""))),
+                        goal=_ensure_str(t.get("goal")),
+                        requirements=_ensure_str(t.get("requirements")),
+                        constraints=_ensure_str(t.get("constraints")),
+                        acceptance=_ensure_str(t.get("acceptance")),
                         codex_instruction=codex_inst,
                     )
                     session.add(task)

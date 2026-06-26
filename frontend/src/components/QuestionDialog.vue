@@ -136,11 +136,12 @@ async function handleSubmit() {
   submitting.value = true
   try {
     const payload: Record<string, string> = {}
-    for (let i = 0; i < props.questions.length; i++) {
+    const count = props.questions.length
+    for (let i = 0; i < count; i++) {
       payload[String(i)] = answers[i]?.trim() || ''
     }
     await store.submitAnswers(payload)
-    ElMessage.success(`已提交 ${props.questions.length} 个回答，继续架构设计`)
+    ElMessage.success(`已提交 ${count} 个回答，继续架构设计`)
     close()
   } catch (e: any) {
     if (store.currentProject?.status !== 'awaiting_input') {
